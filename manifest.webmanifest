@@ -1,0 +1,20 @@
+{
+  "name": "증명사진 규격 도우미",
+  "short_name": "증명사진",
+  "description": "셀카를 증명사진 규격으로 잘라주고 규격에 맞는지 검사합니다. 사진은 기기 밖으로 나가지 않습니다.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f7f9",
+  "theme_color": "#1f6feb",
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

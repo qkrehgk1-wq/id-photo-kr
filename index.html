@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>증명사진 규격 도우미</title>
+<meta name="description" content="셀카를 증명사진 규격으로 잘라주고, 규격에 맞는지 검사합니다. 사진은 휴대폰 밖으로 나가지 않습니다.">
+<meta name="theme-color" content="#1f6feb">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --fg: #16181d; --muted: #6b7280;
+    --line: #e4e7ec; --brand: #1f6feb; --brand-fg: #fff;
+    --pass: #128a4c; --warn: #b45309; --fail: #c22e2e;
+    --pass-bg: #e7f6ee; --warn-bg: #fdf3e3; --fail-bg: #fdeceb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --card: #171a21; --fg: #e8eaed; --muted: #9aa3b2;
+      --line: #262b36; --brand: #4d90f0;
+      --pass: #4ade80; --warn: #fbbf24; --fail: #f87171;
+      --pass-bg: #10261a; --warn-bg: #2a2011; --fail-bg: #2c1516;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard",
+                 "Malgun Gothic", "맑은 고딕", system-ui, sans-serif;
+    line-height: 1.6; -webkit-text-size-adjust: 100%;
+  }
+  .wrap { max-width: 560px; margin: 0 auto; padding: 16px 16px 48px; }
+  header { padding: 8px 0 16px; }
+  h1 { font-size: 1.35rem; margin: 0 0 4px; letter-spacing: -0.02em; }
+  .tagline { color: var(--muted); font-size: 0.9rem; margin: 0; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 16px; margin-bottom: 14px;
+  }
+  .card h2 { font-size: 0.95rem; margin: 0 0 12px; letter-spacing: -0.01em; }
+  .modes { display: grid; gap: 8px; }
+  .mode {
+    display: flex; align-items: flex-start; gap: 10px; padding: 12px;
+    border: 1.5px solid var(--line); border-radius: 10px; cursor: pointer; background: none;
+    text-align: left; color: inherit; font: inherit; width: 100%;
+  }
+  .mode[aria-pressed="true"] { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 8%, transparent); }
+  .mode .t { font-weight: 600; font-size: 0.95rem; }
+  .mode .s { color: var(--muted); font-size: 0.82rem; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 13px 16px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--card); color: var(--fg); font: inherit; font-weight: 600;
+    cursor: pointer; width: 100%;
+  }
+  .btn.primary { background: var(--brand); color: var(--brand-fg); border-color: transparent; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .notice {
+    font-size: 0.85rem; padding: 10px 12px; border-radius: 8px;
+    background: var(--warn-bg); color: var(--warn); margin-top: 10px;
+  }
+  .preview { display: flex; justify-content: center; padding: 8px 0 4px; }
+  #outCanvas {
+    max-width: 240px; width: 100%; height: auto; border-radius: 6px;
+    border: 1px solid var(--line); background: #fff;
+  }
+  .checks { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 6px; }
+  .checks li { display: flex; gap: 9px; padding: 9px 11px; border-radius: 8px; font-size: 0.86rem; align-items: flex-start; }
+  .checks li.pass { background: var(--pass-bg); }
+  .checks li.warn { background: var(--warn-bg); }
+  .checks li.fail { background: var(--fail-bg); }
+  .checks .ico { flex: none; font-weight: 700; }
+  .checks li.pass .ico { color: var(--pass); }
+  .checks li.warn .ico { color: var(--warn); }
+  .checks li.fail .ico { color: var(--fail); }
+  .checks .lab { font-weight: 600; }
+  .checks .fix { display: block; color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
+  label.field { display: block; font-size: 0.85rem; margin: 14px 0 2px; color: var(--muted); }
+  input[type=range] { width: 100%; accent-color: var(--brand); }
+  .chips { display: flex; gap: 7px; flex-wrap: wrap; }
+  .chip {
+    padding: 8px 13px; border-radius: 999px; border: 1.5px solid var(--line);
+    background: none; color: inherit; font: inherit; font-size: 0.85rem; cursor: pointer;
+  }
+  .chip[aria-pressed="true"] { border-color: var(--brand); color: var(--brand); font-weight: 600; }
+  .switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; font-size: 0.9rem; }
+  .hidden { display: none !important; }
+  .status { font-size: 0.87rem; color: var(--muted); text-align: center; padding: 10px 0; }
+  footer { color: var(--muted); font-size: 0.78rem; text-align: center; padding: 8px 4px 0; }
+  footer a { color: inherit; }
+  .privacy { display: flex; gap: 8px; align-items: flex-start; font-size: 0.83rem; color: var(--muted); }
+  video { width: 100%; border-radius: 10px; background: #000; display: block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>증명사진 규격 도우미</h1>
+    <p class="tagline">셀카를 규격대로 잘라주고, 낼 수 있는 사진인지 검사합니다.</p>
+  </header>
+
+  <div class="card">
+    <h2>1. 어디에 쓰시나요?</h2>
+    <div class="modes" id="modes"></div>
+    <div class="notice hidden" id="modeNotice"></div>
+  </div>
+
+  <div class="card" id="captureCard">
+    <h2>2. 사진 준비</h2>
+    <div class="row">
+      <button class="btn primary" id="btnCamera">카메라로 찍기</button>
+      <button class="btn" id="btnFile">앨범에서 고르기</button>
+    </div>
+    <input type="file" id="fileInput" accept="image/*" class="hidden">
+    <div id="cameraArea" class="hidden" style="margin-top:12px">
+      <video id="video" playsinline muted></video>
+      <div class="row" style="margin-top:8px">
+        <button class="btn primary" id="btnShoot">촬영</button>
+        <button class="btn" id="btnCancelCam">취소</button>
+      </div>
+    </div>
+    <p class="privacy" style="margin-top:14px">
+      <span>🔒</span>
+      <span>사진은 이 기기 안에서만 처리됩니다. 어디로도 전송되지 않고, 서버에 저장되지도 않습니다.</span>
+    </p>
+  </div>
+
+  <div class="card hidden" id="resultCard">
+    <h2>3. 결과</h2>
+    <div class="status" id="status">처리 중…</div>
+    <div class="preview"><canvas id="outCanvas"></canvas></div>
+    <ul class="checks" id="checks"></ul>
+
+    <label class="field" for="rngSize">크기 <span id="valSize"></span></label>
+    <input type="range" id="rngSize" min="0.82" max="1.18" step="0.005" value="1">
+
+    <label class="field" for="rngX">좌우 위치</label>
+    <input type="range" id="rngX" min="-80" max="80" step="1" value="0">
+
+    <label class="field" for="rngY">위아래 위치</label>
+    <input type="range" id="rngY" min="-80" max="80" step="1" value="0">
+
+    <div class="switch">
+      <span>기울어진 머리 자동으로 세우기</span>
+      <input type="checkbox" id="chkLevel" checked>
+    </div>
+
+    <div id="bgArea" class="hidden">
+      <label class="field">배경</label>
+      <div class="chips" id="bgChips"></div>
+    </div>
+
+    <div style="margin-top:18px" class="row">
+      <button class="btn" id="btnSaveOne">사진 1장 저장</button>
+      <button class="btn primary" id="btnSaveSheet">인화시트 저장</button>
+    </div>
+    <p class="privacy" style="margin-top:12px">
+      <span>🖨️</span>
+      <span id="sheetHint"></span>
+    </p>
+  </div>
+
+  <footer>
+    규격 출처: 외교부 여권안내(2026-08 확인) · 최종 확인은 접수처 기준을 따르세요.<br>
+    무료 · 광고 없음 · 계정 없음
+  </footer>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
