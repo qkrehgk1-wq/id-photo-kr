@@ -3,7 +3,7 @@
  * 얼굴 인식 모델은 CDN에서 받으므로 첫 실행에는 인터넷이 필요하다.
  * 사진 자체는 어디에도 캐시하지 않는다 — 캐시에 남기지 않는 것도 프라이버시의 일부다.
  */
-const CACHE = 'idphoto-v1';
+const CACHE = 'idphoto-v2'; // 앱 파일을 바꾸면 index.html 의 ?v= 와 함께 올린다
 const SHELL = [
   './',
   './index.html',
@@ -42,6 +42,6 @@ self.addEventListener('fetch', (e) => {
         caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
         return res;
       })
-      .catch(() => caches.match(e.request)),
+      .catch(() => caches.match(e.request, { ignoreSearch: true })), // ?v= 가 붙어도 오프라인 캐시를 찾는다
   );
 });

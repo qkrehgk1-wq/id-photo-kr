@@ -6,7 +6,7 @@
  * 화면 없이 숫자로 검증되는 상태를 지킨다.
  */
 
-import { mmToPx, pxToMm } from './specs.js';
+import { mmToPx, pxToMm } from './specs.js?v=2';
 
 /**
  * 두 눈을 잇는 선의 기울기(라디안).
@@ -30,12 +30,27 @@ export function rotatePoint(p, angle, origin = { x: 0, y: 0 }) {
 
 /**
  * 얼굴 랜드마크에는 '정수리'가 없다 — 메시는 이마 위쪽(10번)에서 끝난다.
- * 규격은 머리카락 포함 정수리를 재므로, 분할 마스크를 못 쓸 때만 쓰는 근사치.
  *
- * 이마 끝~턱 길이의 HAIR_RATIO 만큼을 위로 더 잡는다.
- * 어디까지나 보조 수단이고, 정확한 값은 마스크에서 구한다(measureHeadTopFromMask).
+ * 외교부 규격의 머리 길이는 "정수리(머리카락을 제외한 머리 최상부)부터 턱까지"다
+ * (passport.go.kr 2026-10-19 재확인). 머리카락 끝까지 재면 머리숱이 많은 사람일수록
+ * 머리를 작게 잘라 3.2cm 미만 → 반려가 난다. (v1 은 마스크 맨 위=머리카락 끝을 썼다 — 버그)
+ *
+ * 그래서 두개골 꼭대기를 이마 끝~턱 길이의 HAIR_RATIO 만큼 위로 어림한다.
+ * 성인 두부 계측상 머리선~정수리가 얼굴 길이의 약 1/4 이라는 근사치(오차 ±5% 안팎, 추정).
  */
 export const HAIR_RATIO = 0.25;
+
+/**
+ * 머리카락을 뺀 정수리 y.
+ * 어림값이 머리카락 끝(maskTopY)보다 위로 갈 수는 없다(두개골이 머리카락 밖으로 나올 수 없음).
+ * 짧은 머리·민머리처럼 마스크 끝이 어림값보다 아래면 마스크 끝이 더 정확하다.
+ * → 둘 중 아래쪽(y 가 큰 쪽)을 쓴다.
+ */
+export function skullTop(foreheadY, chinY, maskTopY = null, ratio = HAIR_RATIO) {
+  const est = estimateHeadTop(foreheadY, chinY, ratio);
+  if (maskTopY === null || maskTopY === undefined || !(maskTopY < chinY)) return { y: est, clamped: false };
+  return maskTopY > est ? { y: maskTopY, clamped: true } : { y: est, clamped: false };
+}
 
 export function estimateHeadTop(foreheadY, chinY, ratio = HAIR_RATIO) {
   return foreheadY - (chinY - foreheadY) * ratio;

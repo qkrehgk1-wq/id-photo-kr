@@ -9,7 +9,7 @@
  *  3) 규격 판정은 숫자로만. "예뻐 보인다"가 아니라 mm 단위로 통과/실패를 낸다.
  */
 
-import { SPECS, BACKGROUNDS, PAPERS, DEFAULT_DPI, mmToPx } from './specs.js';
+import { SPECS, BACKGROUNDS, PAPERS, DEFAULT_DPI, mmToPx } from './specs.js?v=2';
 import {
   computeCrop,
   cropOverflow,
@@ -18,8 +18,9 @@ import {
   eyeTiltRadians,
   rotatePoint,
   estimateHeadTop,
-} from './geometry.js';
-import { evaluate, measureBackground, PASS, WARN, FAIL } from './quality.js';
+  skullTop,
+} from './geometry.js?v=2';
+import { evaluate, measureBackground, PASS, WARN, FAIL } from './quality.js?v=2';
 
 const MP_VERSION = '0.10.14';
 const MP_BUNDLE = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/vision_bundle.mjs`;
@@ -43,6 +44,7 @@ const state = {
   mask: null,         // Float32Array, 1 = 사람
   points: null,       // {headTop, chin, centerX, tiltDeg} (작업 캔버스 좌표)
   autoLevel: true,
+  userAutoLevel: true, // 사용자가 고른 값(여권 모드에서 잠시 꺼도 기억)
   bg: 'none',
   size: 1,
   offX: 0,
@@ -65,6 +67,7 @@ function loadVision() {
           baseOptions: { modelAssetPath: MODEL_FACE, delegate: 'GPU' },
           runningMode: 'IMAGE',
           numFaces: 1,
+          outputFaceBlendshapes: true, // 표정(미소·입 벌림) 점검용
         }),
         mp.ImageSegmenter.createFromOptions(fileset, {
           baseOptions: { modelAssetPath: MODEL_SEG, delegate: 'GPU' },
@@ -119,7 +122,7 @@ function normalizeMask(raw, w, h) {
   return out;
 }
 
-/** 마스크에서 정수리(가장 위쪽 사람 픽셀) 찾기 — 머리카락이 포함되므로 규격에 맞다 */
+/** 마스크에서 머리카락 끝(가장 위쪽 사람 픽셀) 찾기 — 규격의 정수리는 이보다 아래(머리카락 제외)다 */
 function headTopFromMask(mask, w, h, centerX) {
   const band = Math.max(8, Math.round(w * 0.16));
   const x0 = Math.max(0, Math.round(centerX - band));
@@ -219,11 +222,20 @@ async function analyze(bitmap) {
   const vision = await loadVision();
   let landmarks = null;
   let maskRaw = null;
+  let expression = null;
 
   if (vision?.face) {
     try {
       const res = vision.face.detect(state.rawImage);
       landmarks = res?.faceLandmarks?.[0] || null;
+      const cats = res?.faceBlendshapes?.[0]?.categories;
+      if (cats) {
+        const s = Object.fromEntries(cats.map((c) => [c.categoryName, c.score]));
+        expression = {
+          smile: ((s.mouthSmileLeft || 0) + (s.mouthSmileRight || 0)) / 2,
+          jawOpen: s.jawOpen || 0,
+        };
+      }
     } catch (e) {
       console.warn('얼굴 인식 실패', e);
     }
@@ -251,7 +263,7 @@ async function analyze(bitmap) {
     }
   }
 
-  state.detection = { landmarks, maskRaw };
+  state.detection = { landmarks, maskRaw, expression };
   rebuild();
 }
 
@@ -297,17 +309,15 @@ function rebuild() {
     const cr = rot.map({ x: landmarks[IDX.cheekR].x * w, y: landmarks[IDX.cheekR].y * h });
     const centerX = (cl.x + cr.x) / 2;
 
-    // 정수리는 마스크에서 재는 게 정확하다(머리카락 포함). 없으면 이마에서 추정.
-    let headTop = null;
-    let headTopSource = 'estimate';
+    // 규격의 정수리 = 머리카락을 제외한 머리 최상부. 이마에서 어림하고, 마스크(머리카락 끝)로 위쪽을 막는다.
+    let maskTop = null;
     if (state.mask) {
       const y = headTopFromMask(state.mask, state.source.width, state.source.height, centerX);
-      if (y !== null && y < chin.y) {
-        headTop = y;
-        headTopSource = 'mask';
-      }
+      if (y !== null && y < chin.y) maskTop = y;
     }
-    if (headTop === null) headTop = estimateHeadTop(fore.y, chin.y);
+    const st = skullTop(fore.y, chin.y, maskTop);
+    const headTop = st.y;
+    const headTopSource = st.clamped ? 'mask' : 'estimate';
 
     state.points = { headTop, chin: chin.y, centerX, tiltDeg, headTopSource };
   } else {
@@ -399,6 +409,7 @@ function render() {
     overflow,
     background,
     spec,
+    expression: state.detection?.expression || null,
   });
 
   paintChecks(result, p);
@@ -444,7 +455,7 @@ function paintChecks(result, points) {
     const li = document.createElement('li');
     li.className = 'warn';
     li.innerHTML =
-      '<span class="ico">!</span><span><span class="lab">정수리 추정치 사용</span> — 머리카락 경계를 못 찾아 어림값으로 잡았습니다.<span class="fix">크기 슬라이더로 미세 조정해주세요.</span></span>';
+      '<span class="ico">i</span><span><span class="lab">정수리는 어림값</span> — 외교부 규격대로 머리카락을 뺀 머리 꼭대기를 이마 위치로 어림했습니다(±2mm 안팎).<span class="fix">머리숱이 많거나 앞머리가 이마를 덮으면 크기 슬라이더로 확인해주세요.</span></span>';
     ul.appendChild(li);
   }
 }
@@ -531,6 +542,18 @@ function applyModeUI() {
 
   $('bgArea').classList.toggle('hidden', !spec.allowBackgroundEdit);
   if (!spec.allowBackgroundEdit) state.bg = 'none';
+
+  // 여권 모드: 사진 돌리기(보정) 금지 — 체크 상자를 끄고 잠근다. 다른 모드로 가면 사용자 선택을 되살린다.
+  const chk = $('chkLevel');
+  const levelAllowed = spec.allowAutoLevel !== false;
+  chk.disabled = !levelAllowed;
+  chk.checked = levelAllowed ? state.userAutoLevel : false;
+  $('levelNote').classList.toggle('hidden', levelAllowed);
+  const want = levelAllowed ? state.userAutoLevel : false;
+  if (state.autoLevel !== want) {
+    state.autoLevel = want;
+    if (state.source) rebuild();
+  }
 
   const layout = packSheet({
     paper: PAPERS['4x6'],
@@ -642,6 +665,7 @@ function wire() {
 
   $('chkLevel').addEventListener('change', (e) => {
     state.autoLevel = e.target.checked;
+    state.userAutoLevel = e.target.checked;
     rebuild();
   });
 

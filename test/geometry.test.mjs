@@ -11,6 +11,7 @@ import {
   eyeTiltRadians,
   rotatePoint,
   estimateHeadTop,
+  skullTop,
 } from '../js/geometry.js';
 import { evaluate, measureBackground, PASS, WARN, FAIL } from '../js/quality.js';
 
@@ -150,6 +151,33 @@ test('estimateHeadTop: 이마보다 위쪽을 가리킨다', () => {
   assert.ok(Math.abs(top - (200 - 100)) < 1e-9); // (600-200)*0.25 = 100
 });
 
+test('skullTop: 규격 정수리는 머리카락을 뺀 위치 — 머리숱이 많아도 머리카락 끝을 쓰지 않는다', () => {
+  // 이마 200, 턱 600 → 어림 정수리 100. 머리카락 끝(마스크)이 40 이면 그보다 아래인 100 을 써야 한다.
+  const r = skullTop(200, 600, 40);
+  assert.equal(r.y, 100);
+  assert.equal(r.clamped, false);
+});
+
+test('skullTop: 짧은 머리·민머리면 마스크 끝이 어림값보다 아래 → 마스크 끝을 쓴다', () => {
+  const r = skullTop(200, 600, 130);
+  assert.equal(r.y, 130);
+  assert.equal(r.clamped, true);
+});
+
+test('skullTop: 마스크가 없거나 턱 아래면 어림값', () => {
+  assert.equal(skullTop(200, 600, null).y, 100);
+  assert.equal(skullTop(200, 600, 700).y, 100);
+});
+
+test('skullTop: 머리숱 많은 사진에서 v1(머리카락 끝) 방식이면 머리 길이가 규격보다 작게 잘린다', () => {
+  // 실제 두개골 길이 500px(정수리100~턱600), 머리카락 끝 40 → v1 은 560px 을 34mm 로 맞춤
+  // → 실제 머리 길이 = 34 * 500/560 = 30.4mm (< 32mm, 반려). v2 는 500px 을 34mm 로 맞춘다.
+  const v1 = 34 * 500 / (600 - 40);
+  assert.ok(v1 < 32, '버그 재현: v1 방식은 규격 미달');
+  const v2top = skullTop(200, 600, 40).y;
+  assert.equal(34 * 500 / (600 - v2top), 34);
+});
+
 test('evaluate: 모든 조건이 좋으면 통과', () => {
   const r = evaluate({
     faceMM: 34,
@@ -224,4 +252,29 @@ test('measureBackground: 사람 영역을 빼고 배경만 잰다', () => {
   assert.ok(Math.abs(m.meanLuma - 250) < 1, `배경 평균이 250이어야 하는데 ${m.meanLuma}`);
   assert.ok(m.stdev < 1);
   assert.equal(m.samples, n / 2);
+});
+
+test('evaluate: 여권 모드에서 웃거나 입을 벌리면 표정 주의, 무표정이면 통과', () => {
+  const base = { faceMM: 34, tiltDeg: 0, scale: 0.5, overflow: { any: false, top: 0, bottom: 0, left: 0, right: 0 }, background: null, spec: SPECS.passport };
+  const smile = evaluate({ ...base, expression: { smile: 0.8, jawOpen: 0.1 } });
+  assert.equal(smile.items.find((i) => i.key === 'expr').status, WARN);
+  const open = evaluate({ ...base, expression: { smile: 0.1, jawOpen: 0.5 } });
+  assert.match(open.items.find((i) => i.key === 'expr').detail, /입이 벌어/);
+  const calm = evaluate({ ...base, expression: { smile: 0.05, jawOpen: 0.02 } });
+  assert.equal(calm.items.find((i) => i.key === 'expr').status, PASS);
+});
+
+test('evaluate: 일반 증명사진은 표정을 검사하지 않는다 (규정 없음)', () => {
+  const r = evaluate({ faceMM: 33, tiltDeg: 0, scale: 0.5, overflow: { any: false, top: 0, bottom: 0, left: 0, right: 0 }, background: null, spec: SPECS.resume, expression: { smile: 0.9, jawOpen: 0.5 } });
+  assert.equal(r.items.find((i) => i.key === 'expr'), undefined);
+});
+
+test('배포: 앱 파일 버전(?v=)이 index.html 과 모든 import 에서 같다 — 섞이면 업데이트 직후 앱이 깨진다', async () => {
+  const { readFileSync } = await import('node:fs');
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const all = [read('../index.html'), read('../js/app.js'), read('../js/geometry.js'), read('../js/quality.js')].join('\n');
+  const vers = new Set([...all.matchAll(/\.js\?v=(\d+)/g)].map((m) => m[1]));
+  assert.equal(vers.size, 1, `버전이 섞임: ${[...vers]}`);
+  const bare = [...all.matchAll(/from '\.\/(\w+)\.js'/g)].map((m) => m[1]);
+  assert.deepEqual(bare, [], `버전 없는 import: ${bare}`);
 });

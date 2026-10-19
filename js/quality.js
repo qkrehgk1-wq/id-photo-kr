@@ -22,6 +22,10 @@ const FAIL = 'fail';
 
 export { PASS, WARN, FAIL };
 
+/** 표정 '주의' 기준선(0~1). 실측 없음 — 미소·입 벌림이 뚜렷할 때만 걸리도록 넉넉히 잡은 추정값. */
+export const SMILE_WARN = 0.45;
+export const JAW_WARN = 0.25;
+
 /**
  * @param {object} m 측정값
  * @param {number} m.faceMM        결과물에서의 정수리~턱 길이(mm)
@@ -30,9 +34,10 @@ export { PASS, WARN, FAIL };
  * @param {object} m.overflow      cropOverflow() 결과
  * @param {?object} m.background   {meanLuma, stdev} — 측정 못했으면 null
  * @param {object} m.spec
+ * @param {?object} m.expression  {smile, jawOpen} 0~1 — 얼굴 표정 점수(MediaPipe blendshape). 없으면 null
  * @returns {{status:string, items:Array}}
  */
-export function evaluate({ faceMM, tiltDeg, scale, overflow, background, spec }) {
+export function evaluate({ faceMM, tiltDeg, scale, overflow, background, spec, expression = null }) {
   const items = [];
 
   // 1) 얼굴 길이 — 규격의 본체
@@ -132,6 +137,22 @@ export function evaluate({ faceMM, tiltDeg, scale, overflow, background, spec })
           fix: '벽에서 조금 떨어지고, 정면에서 고르게 빛이 오도록 해주세요.',
         });
       }
+    }
+  }
+
+  // 6) 표정 — 여권 규격 "입은 다물어야 하며(치아 노출 불가), 미소 짓지 않는 무표정".
+  //    점수 기준선은 경험값(추정)이라 '불합격'이 아니라 '주의'로만 알린다.
+  if (spec.checkExpression && expression) {
+    if (expression.smile > SMILE_WARN || expression.jawOpen > JAW_WARN) {
+      items.push({
+        key: 'expr',
+        status: WARN,
+        label: '표정',
+        detail: expression.jawOpen > JAW_WARN ? '입이 벌어져 보입니다' : '웃는 표정으로 보입니다',
+        fix: '입을 다물고 무표정으로 다시 찍어주세요. (치아가 보이거나 웃으면 반려될 수 있습니다)',
+      });
+    } else {
+      items.push({ key: 'expr', status: PASS, label: '표정', detail: '입 다문 무표정으로 보입니다' });
     }
   }
 
